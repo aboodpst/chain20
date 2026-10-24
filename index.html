@@ -30,6 +30,7 @@ ul{padding-inline-start:20px;margin:6px 0}
 small{color:var(--mut)}
 </style><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script></head><body><div class="wrap">
 <h1>⚽ سلسلة ٢٠</h1>
+<p id="dbg" class="hide" style="color:var(--a);font-weight:700"></p>
 <div id="home" class="card">
 <p>مباراة أونلاين ٢ ضد ٢، كل لاعبة بجوالها. أول فريق يصل ٢٠ نقطة يفوز، والخاسر يخرج.</p>
 <input id="nm" placeholder="اسمك" maxlength="12">
@@ -66,43 +67,48 @@ const SK=['#f6d2b8','#e8b68f','#c98d62','#8d5a3b'],HR=['#2b1a12','#5a3320','#b56
 const esc=s=>String(s==null?'':s).slice(0,12).replace(/[&<>"'`]/g,c=>'&#'+c.charCodeAt(0)+';');
 let R=null,rm=null,isH=0,P=[],bl,G=null,V=[],VB={x:W/2,y:H/2},S={},NMS=[],K={},ptr=null,C={pa:0,sh:0,ab:0},myK=-1,msgT=0,lmi=-1,lastEnd='',ix=0,iy=0,lt=0,sn=0;
 const D=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y),peers=()=>rm?rm.peers():[],hostP=()=>peers().find(p=>p.presence.host),pres=o=>{if(rm)rm.presence(o).catch(()=>{})};
-const byId=(a,b)=>a.peer<b.peer?-1:1;
+const byId=(a,b)=>(a.presence.j||0)-(b.presence.j||0)||(a.peer<b.peer?-1:1);
 // ===== ضع إعدادات Firebase هنا (من Project settings) =====
 const FB={apiKey:"AIzaSyAoEGeagyDuja29-b0Jn5Qt0g6f69N_UQc",authDomain:"duo-blitz.firebaseapp.com",databaseURL:"https://duo-blitz-default-rtdb.europe-west1.firebasedatabase.app",projectId:"duo-blitz",appId:"1:326588526869:web:5d43d1a81bf687c92af91c"};
 // ==========================================================
 try{
- firebase.initializeApp(FB);const DB=firebase.database(),ID=Math.random().toString(36).slice(2,10);
+ firebase.initializeApp(FB);const DB=firebase.database(),ID=(()=>{try{let v=sessionStorage.getItem('c20id');if(!v){v=Math.random().toString(36).slice(2,10);sessionStorage.setItem('c20id',v)}return v}catch(e){return Math.random().toString(36).slice(2,10)}})();
  R={join:async name=>{
-  const base=DB.ref('rooms/'+name),mine=base.child(ID),cache={},st={};let L=[],cbs=[],tm=0,pn=0;
-  const rb=()=>{L=Object.keys(cache).map(k=>({peer:k,presence:cache[k],isMe:k==ID,sameTab:k==ID,kind:'viewer',guest:false}));if(!pn){pn=1;requestAnimationFrame(()=>{pn=0;cbs.forEach(f=>f({peers:L}))})}};
-  const up=s=>{if(s.key!=ID){cache[s.key]=s.val()||{};rb()}};
+  const base=DB.ref('rooms/'+name),mine=base.child(ID),cache={},st={},seen={};let L=[],cbs=[],tm=0,pn=0;
+  const alive=k=>k==ID||(seen[k]&&performance.now()-seen[k].t<9000),wr=()=>{tm=0;try{mine.set(JSON.parse(JSON.stringify(st))).catch(e=>dbg('قاعدة البيانات: '+(e.code||e.message)))}catch(e){dbg('قاعدة البيانات: '+e.message)}};
+  const rb=()=>{L=Object.keys(cache).filter(alive).map(k=>({peer:k,presence:cache[k],isMe:k==ID,sameTab:k==ID,kind:'viewer',guest:false}));if(!pn){pn=1;requestAnimationFrame(()=>{pn=0;cbs.forEach(f=>f({peers:L}))})}};
+  const up=s=>{if(s.key==ID)return;const v=s.val()||{},o=seen[s.key];if(!o||o.h!==v.hb)seen[s.key]={h:v.hb,t:performance.now()};cache[s.key]=v;rb()};
   base.on('child_added',up);base.on('child_changed',up);
   base.on('child_removed',s=>{delete cache[s.key];rb()});
-  DB.ref('.info/connected').on('value',s=>{if(s.val()){mine.onDisconnect().remove();if(Object.keys(st).length)mine.set(st)}});
-  cache[ID]=st;rb();
+  DB.ref('.info/connected').on('value',s=>{if(s.val()){mine.onDisconnect().remove();if(Object.keys(st).length)wr()}});
+  cache[ID]=st;rb();const hbI=setInterval(()=>{if(Object.keys(st).length){st.hb=(st.hb|0)+1;if(!tm)tm=setTimeout(wr,50)}rb()},2000);
   return{peers:()=>L,
    presence:o=>{for(const k in o){if(o[k]===null)delete st[k];else st[k]=o[k]}
-    if(!tm)tm=setTimeout(()=>{tm=0;mine.set(st)},50);rb();return Promise.resolve()},
+    if(!tm)tm=setTimeout(wr,50);rb();return Promise.resolve()},
    onPeers:f=>{cbs.push(f);setTimeout(()=>f({peers:L}),0);return()=>{cbs=cbs.filter(z=>z!=f)}},
-   leave:async()=>{base.off();DB.ref('.info/connected').off();cbs=[];clearTimeout(tm);mine.remove()}}}}
+   leave:async()=>{base.off();DB.ref('.info/connected').off();cbs=[];clearTimeout(tm);clearInterval(hbI);mine.remove()}}}}
 }catch(e){}
 function show(id){['home','lb','gm','end'].forEach(i=>$(i).classList.toggle('hide',i!=id))}
+function dbg(t){const e=$('dbg');e.textContent=t||'';e.classList.toggle('hide',!t)}
+let wl=null;async function keepAwake(){try{if(navigator.wakeLock&&!wl){wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>{wl=null})}}catch(e){}}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&rm)keepAwake()});
 async function enter(code,host){
  const n=$('nm').value.trim().slice(0,12)||'لاعبة';
  if(!R)return $('er').textContent='الاتصال غير متاح. راجع إعدادات Firebase.';
  try{rm=await R.join('c20-'+code)}catch(e){return $('er').textContent='تعذر الدخول، حاول مرة ثانية.'}
- isH=host;$('rc').textContent=code;
- pres(Object.assign({n,t:null,ix:0,iy:0,pa:0,sh:0,ab:0},host?{host:1,m:0}:{}));
+ isH=host;$('rc').textContent=code;keepAwake();dbg('');
+ pres(Object.assign({n,j:Date.now(),t:null,ix:0,iy:0,pa:0,sh:0,ab:0},host?{host:1,m:0}:{}));
  rm.onPeers(view);view()}
 $('mk').onclick=()=>enter(String(1000+Math.floor(Math.random()*9000)),1);
 $('jn').onclick=()=>{const c=$('cd').value.replace(/\D/g,'');if(c.length!=4)return $('er').textContent='الرمز ٤ أرقام.';enter(c,0)};
-$('j0').onclick=()=>pres({t:0});$('j1').onclick=()=>pres({t:1});
+function joinT(t){const c=peers().filter(p=>p.presence.t===t&&!p.isMe).length;if(c>=2)return dbg('الفريق ممتلئ، اختر الفريق الثاني.');dbg('');pres({t})}
+$('j0').onclick=()=>joinT(0);$('j1').onclick=()=>joinT(1);
 $('bk').onclick=()=>{if(rm)rm.leave();rm=null;isH=0;G=null;show('home')};
 function lobby(hp){
  const tm=[0,1].map(t=>peers().filter(p=>p.presence.t===t).sort(byId));
  [0,1].forEach(t=>{$('t'+t).innerHTML='<b style="color:'+CL[t]+'">'+TN[t]+' ('+Math.min(2,tm[t].length)+'/2)</b>'+tm[t].map((p,i)=>'<div>'+(i<2?ICO[i]+' ':'⏳ ')+esc(p.presence.n)+(p.isMe?' (أنت)':'')+'</div>').join('')});
  $('st').classList.toggle('hide',!isH);$('st').disabled=!(tm[0].length&&tm[1].length);
- $('lm').textContent=hp?'المطلوب لاعبتان في كل فريق.':'بانتظار المضيف…'}
+ $('lm').textContent=(hp?'المطلوب لاعبتان في كل فريق.':'بانتظار المضيف…')+' (متصلون: '+peers().length+')'}
 function endCard(pr){const sc=pr.sc||[0,0];
  $('end').innerHTML='<h2>🏆 الفريق '+TN[pr.w]+' يفوز!</h2><p>'+sc[0]+' - '+sc[1]+'. الفريق الآخر يخرج من البطولة.</p>'+(isH?'<button id="bk2">العودة للوبي</button>':'<p>بانتظار المضيف…</p>');
  if(isH)$('bk2').onclick=()=>{G=null;pres({m:0,ro:null,g:null,cd:null,ch:null,ct:null,bo:null,mi:null,ms:null,w:null,sc:null})}}
@@ -116,13 +122,13 @@ function view(){
 // ---- المضيف: المحاكاة ----
 function reset(){P.forEach(p=>{const f=F[p.i];p.x=p.t?W-f[0]:f[0];p.y=f[1];p.cool=0;p.held=0});bl.x=W/2;bl.y=H/2;bl.vx=bl.vy=0;bl.o=-1;G.ch=new Set();G.ct=-1;G.bonus=0;G.pause=1.2}
 function say(t){G.mi++;G.ms=t}
-$('st').onclick=()=>{
+$('st').onclick=()=>{try{
  const ro=[];[0,1].forEach(t=>peers().filter(p=>p.presence.t===t).sort(byId).slice(0,2).forEach((p,i)=>ro.push([p.peer,t,i])));
- if(!ro.some(r=>!r[1])||!ro.some(r=>r[1]))return;
+ if(!ro.some(r=>!r[1])||!ro.some(r=>r[1]))return dbg('لازم لاعبة على الأقل في كل فريق.');
  bl={x:0,y:0,vx:0,vy:0,o:-1};G={S:[0,0],time:180,od:[0,0],ct:-1,ch:new Set(),bonus:0,pause:1.2,gold:0,on:1,mi:0,ms:''};
  P=[];for(let t=0;t<2;t++)for(let i=0;i<2;i++){const e=ro.find(r=>r[1]==t&&r[2]==i),q=e&&peers().find(p=>p.peer==e[0]),s=q?q.presence:{};
   P.push({k:t*2+i,t,i,on:!!e,peer:e&&e[0],x:0,y:0,fx:t?-1:1,fy:0,cool:0,held:0,ab:0,dash:0,slow:0,l:[s.pa|0,s.sh|0,s.ab|0]})}
- reset();pres({m:1,ro,w:null,sc:null});lt=performance.now()};
+ reset();pres({m:1,ro,w:null,sc:null});lt=performance.now()}catch(e){dbg('تعذر البدء: '+e.message)}};
 function spd(p){let s=130;if(G.od[p.t]>0)s*=1.3;if(p.slow>0)s*=.5;if(p.dash>0)s*=2.2;return s}
 function mv(p,tx,ty,sp,dt){const dx=tx-p.x,dy=ty-p.y,d=Math.hypot(dx,dy);if(d>3){p.fx=dx/d;p.fy=dy/d;const s=Math.min(sp*dt,d);p.x+=p.fx*s;p.y+=p.fy*s}p.x=Math.max(14,Math.min(W-14,p.x));p.y=Math.max(14,Math.min(H-14,p.y))}
 function take(p){bl.o=p.k;p.held=0;if(G.ct!=p.t){G.ct=p.t;G.ch=new Set();G.bonus=0}G.ch.add(p.k)}
@@ -189,8 +195,8 @@ function hud(){const g=S.g;if(!g)return;const s=g[0];
  $('tm').textContent=(g[6]?'⭐ ذهبية':Math.floor(s/60)+':'+String(s%60).padStart(2,'0'))+'  🔗'+(S.ct>=0?(S.ch||[]).length+(S.bo|0):0);
  $('ctl').classList.toggle('hide',myK<0);if(myK>=0){const i=myK&1,c=(S.cd||[])[myK]|0;$('be').textContent=ICO[i]+' '+ABN[i]+(c>0?' '+c:'')}}
 function loop(t){const dt=Math.min(.05,(t-lt)/1000||0);lt=t;
- if(isH&&G&&G.on){upd(dt);sn+=dt;if(sn>.066){sn=0;snap()}}
- if(!$('gm').classList.contains('hide')){msgT-=dt;smooth();draw();hud()}
+ try{if(isH&&G&&G.on){upd(dt);sn+=dt;if(sn>.066){sn=0;snap()}}
+ if(!$('gm').classList.contains('hide')){msgT-=dt;smooth();draw();hud()}}catch(e){dbg('خطأ: '+e.message)}
  requestAnimationFrame(loop)}
 requestAnimationFrame(loop);
 // ---- التحكم ----
